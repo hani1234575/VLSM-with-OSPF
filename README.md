@@ -84,6 +84,3 @@ Assume three routers:
 - **Router2** connects Net B (`192.168.10.128/26`) and Net C (`192.168.10.192/27`).
 - **Router3** connects Net D (`192.168.10.224/28`), Net F (`192.168.10.240/28`), and links to Router2.
 
-### OSPF Configuration (Cisco IOS style)
-
-#### Router1
