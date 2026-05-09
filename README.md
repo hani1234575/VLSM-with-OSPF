@@ -1,86 +1,142 @@
-# VLSM Example with OSPF – 5 Networks (100, 50, 25, 10, 5 hosts)
+# VLSM with OSPF – Network Diagram Implementation
 
-This repository demonstrates **Variable Length Subnet Masking (VLSM)** using the private Class C network `192.168.10.0/24`, and then shows how to enable **OSPF** dynamic routing between these subnets.
+This repository shows a **VLSM** design for five networks (100, 50, 25, 10, 5 hosts) inside `192.168.10.0/24`, and then configures **OSPF** routing according to the physical topology shown in the diagram (`312429.jpg`).
 
-We efficiently allocate subnets for five networks with different host requirements – from largest to smallest – without wasting IP addresses, and then configure OSPF to advertise them.
+## 📡 Topology (as per diagram)
 
-## 📋 Host Requirements
+The diagram consists of **three routers** interconnected via serial links, with end‑user subnets attached to FastEthernet ports.
 
-| Network | Required Hosts |
-|---------|----------------|
-| A       | 100            |
-| B       | 50             |
-| C       | 25             |
-| D       | 10             |
-| F       | 5              |
+### Router1 (R1)
+- `Fa0/0` → **Net F** – 5 hosts → `192.168.10.240/29`
+- `Se0/0/0` → link to **Router2** `Se0/0/0`
 
-> **Note**: Network E is skipped to avoid confusion with the original 4‑network example; F is added as the 5th network.
+### Router2 (R2)
+- `Fa0/0` → **Net D** – 10 hosts → `192.168.10.224/28`
+- `Fa0/1` → **Net B** – 50 hosts → `192.168.10.128/26`
+- `Fa0/2` → **Net C** – 25 hosts → `192.168.10.192/27`
+- `Fa0/3` → (spare / future use)
+- `Fa0/4` → (spare)
+- `Se0/0/0` → link to **Router1** `Se0/0/0`
+- `Se0/1/1` → link to **Router3** `Se0/1/1`
 
-## 🧮 Step 1 – Determine Subnet Masks
+### Router3 (R3)
+- `Fa0/0` → **Net A** – 100 hosts → `192.168.10.0/25`
+- `Fa0/1` → (spare)
+- `Se0/1/1` → link to **Router2** `Se0/1/1`
 
-For each requirement, find the smallest block size that provides enough usable hosts (`2ⁿ – 2 ≥ required hosts`).
+> *Note*: The diagram also shows `Fa0/4` and other ports on R2, which are reserved for future expansion (not used in OSPF config).
 
-| Hosts needed | Block size | Subnet mask     | CIDR |
-|--------------|------------|-----------------|------|
-| 100          | 128        | 255.255.255.128 | /25  |
-| 50           | 64         | 255.255.255.192 | /26  |
-| 25           | 32         | 255.255.255.224 | /27  |
-| 10           | 16         | 255.255.255.240 | /28  |
-| 5            | 16         | 255.255.255.240 | /28  |
+## 🧮 VLSM Subnet Summary (as calculated)
 
-> For 5 hosts, the smallest power of 2 is 16 (14 usable). So we need a `/28` subnet.
+| Network | Required hosts | CIDR | Subnet mask         | Network address | Usable range                         | Broadcast     |
+|---------|----------------|------|---------------------|-----------------|--------------------------------------|---------------|
+| A       | 100            | /25  | 255.255.255.128     | 192.168.10.0    | 192.168.10.1   – 192.168.10.126      | 192.168.10.127|
+| B       | 50             | /26  | 255.255.255.192     | 192.168.10.128  | 192.168.10.129 – 192.168.10.190      | 192.168.10.191|
+| C       | 25             | /27  | 255.255.255.224     | 192.168.10.192  | 192.168.10.193 – 192.168.10.222      | 192.168.10.223|
+| D       | 10             | /28  | 255.255.255.240     | 192.168.10.224  | 192.168.10.225 – 192.168.10.238      | 192.168.10.239|
+| F       | 5              | /29  | 255.255.255.248     | 192.168.10.240  | 192.168.10.241 – 192.168.10.246      | 192.168.10.247|
 
-## 📍 Step 2 – Assign Subnets (Largest First)
+## 🔌 Interface IP Addressing
 
-Start from `192.168.10.0/24` and allocate **contiguous, non‑overlapping** subnets.
+We assign the **first usable IP** of each subnet to the router interface.
 
-### Network A (/25, block size 128)
-- **Network address**: `192.168.10.0/25`
-- **Usable hosts**: `192.168.10.1 – 192.168.10.126`
-- **Broadcast**: `192.168.10.127`
+| Router | Interface | Connected to | IP address            | Subnet mask         |
+|--------|-----------|--------------|-----------------------|---------------------|
+| R1     | Fa0/0     | Net F        | 192.168.10.241        | 255.255.255.248     |
+| R1     | Se0/0/0   | R2 Se0/0/0   | 192.168.10.249 /30    | 255.255.255.252     |
+| R2     | Fa0/0     | Net D        | 192.168.10.225        | 255.255.255.240     |
+| R2     | Fa0/1     | Net B        | 192.168.10.129        | 255.255.255.192     |
+| R2     | Fa0/2     | Net C        | 192.168.10.193        | 255.255.255.224     |
+| R2     | Se0/0/0   | R1 Se0/0/0   | 192.168.10.250 /30    | 255.255.255.252     |
+| R2     | Se0/1/1   | R3 Se0/1/1   | 192.168.10.253 /30    | 255.255.255.252     |
+| R3     | Fa0/0     | Net A        | 192.168.10.1          | 255.255.255.128     |
+| R3     | Se0/1/1   | R2 Se0/1/1   | 192.168.10.254 /30    | 255.255.255.252     |
 
-### Network B (/26, block size 64)
-- **Network address**: `192.168.10.128/26`
-- **Usable hosts**: `192.168.10.129 – 192.168.10.190`
-- **Broadcast**: `192.168.10.191`
+> *Point‑to‑point links* use a `/30` mask (4 addresses, 2 usable). We used the first available `/30` block after the VLSM subnets: `192.168.10.248/30` (R1–R2) and `192.168.10.252/30` (R2–R3). These do not overlap with the five subnets.
 
-### Network C (/27, block size 32)
-- **Network address**: `192.168.10.192/27`
-- **Usable hosts**: `192.168.10.193 – 192.168.10.222`
-- **Broadcast**: `192.168.10.223`
+## 🧭 OSPF Configuration (Cisco style)
 
-### Network D (/28, block size 16)
-- **Network address**: `192.168.10.224/28`
-- **Usable hosts**: `192.168.10.225 – 192.168.10.238`
-- **Broadcast**: `192.168.10.239`
+All interfaces are placed in **OSPF area 0**. Below are the exact commands per router.
 
-### Network F (/28, block size 16)
-- **Network address**: `192.168.10.240/28`
-- **Usable hosts**: `192.168.10.241 – 192.168.10.254`
-- **Broadcast**: `192.168.10.255`
+### Router1 (R1)
+```
 
-> All addresses from `0` to `255` are now used – no waste.
+interface FastEthernet0/0
+ip address 192.168.10.241 255.255.255.248
+ip ospf 1 area 0
+!
+interface Serial0/0/0
+ip address 192.168.10.249 255.255.255.252
+ip ospf 1 area 0
+clock rate 64000   ! DCE side (if needed)
+!
+router ospf 1
+router-id 1.1.1.1
 
-## 📊 Final Summary Table
+```
 
-| Network | CIDR | Subnet Mask         | Network Address | Usable Range                      | Broadcast     | Usable Hosts |
-|---------|------|---------------------|-----------------|-----------------------------------|---------------|--------------|
-| A       | /25  | 255.255.255.128     | 192.168.10.0    | 1 – 126                           | 192.168.10.127| 126          |
-| B       | /26  | 255.255.255.192     | 192.168.10.128  | 129 – 190                         | 192.168.10.191| 62           |
-| C       | /27  | 255.255.255.224     | 192.168.10.192  | 193 – 222                         | 192.168.10.223| 30           |
-| D       | /28  | 255.255.255.240     | 192.168.10.224  | 225 – 238                         | 192.168.10.239| 14           |
-| F       | /28  | 255.255.255.240     | 192.168.10.240  | 241 – 254                         | 192.168.10.255| 14           |
+### Router2 (R2)
+```
 
-## 🧭 Step 3 – Adding OSPF Routing
+interface FastEthernet0/0
+ip address 192.168.10.225 255.255.255.240
+ip ospf 1 area 0
+!
+interface FastEthernet0/1
+ip address 192.168.10.129 255.255.255.192
+ip ospf 1 area 0
+!
+interface FastEthernet0/2
+ip address 192.168.10.193 255.255.255.224
+ip ospf 1 area 0
+!
+interface Serial0/0/0
+ip address 192.168.10.250 255.255.255.252
+ip ospf 1 area 0
+!
+interface Serial0/1/1
+ip address 192.168.10.253 255.255.255.252
+ip ospf 1 area 0
+clock rate 64000   ! DCE side (if needed)
+!
+router ospf 1
+router-id 2.2.2.2
 
-To allow these five subnets to communicate, we can run **OSPF** on the routers that connect them.  
-OSPF fully supports VLSM and will advertise each subnet with its correct mask.
+```
 
-### Example Topology
+### Router3 (R3)
+```
 
-Assume three routers:
+interface FastEthernet0/0
+ip address 192.168.10.1 255.255.255.128
+ip ospf 1 area 0
+!
+interface Serial0/1/1
+ip address 192.168.10.254 255.255.255.252
+ip ospf 1 area 0
+!
+router ospf 1
+router-id 3.3.3.3
 
-- **Router1** connects Net A (`192.168.10.0/25`) and has a link to Router2.
-- **Router2** connects Net B (`192.168.10.128/26`) and Net C (`192.168.10.192/27`).
-- **Router3** connects Net D (`192.168.10.224/28`), Net F (`192.168.10.240/28`), and links to Router2.
+```
 
+### Alternative: Network‑statement method
+
+If you prefer the classic `network` commands with wildcard masks:
+
+**On all routers** (same OSPF process 1):
+```
+
+router ospf 1
+network 192.168.10.0 0.0.0.127 area 0      ! Net A
+network 192.168.10.128 0.0.0.63 area 0     ! Net B
+network 192.168.10.192 0.0.0.31 area 0     ! Net C
+network 192.168.10.224 0.0.0.15 area 0     ! Net D
+network 192.168.10.240 0.0.0.7 area 0      ! Net F
+network 192.168.10.248 0.0.0.3 area 0      ! R1–R2 link
+network 192.168.10.252 0.0.0.3 area 0      ! R2–R3 link
+
+```
+
+## Author ✍️
+Eng ~ Hani Ahmed Abdullah Muhammad.
